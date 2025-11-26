@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Animated Snake Game</title>
+<style>
+    body {
+        margin: 0;
+        overflow: hidden;
+        background: linear-gradient(135deg, #1e3c72, #2a5298);
+        font-family: Arial, sans-serif;
+        color: white;
+        text-align: center;
+        user-select: none;
+    }
+    #score {
+        position: absolute;
+        top: 15px;
+        left: 15px;
+        font-size: 24px;
+        font-weight: bold;
+        text-shadow: 0 0 5px black;
+    }
+</style>
+</head>
+<body>
+
+<div id="score">Score: 0</div>
+<canvas id="gameCanvas"></canvas>
+
+<script>
+// ------------------------------------------------------------
+// CANVAS SETUP
+// ------------------------------------------------------------
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
+
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
+
+const size = 20;                         // snake chunk size
+let speed = 4;                           // real-time speed
+let score = 0;
+let running = true;
+
+// Real-time snake movement
+let snake = [
+    { x: 200, y: 200 },
+    { x: 180, y: 200 },
+    { x: 160, y: 200 }
+];
+
+let direction = { x: 1, y: 0 };
+
+// colourful snake skin
+const colors = ["#2ecc71", "#27ae60", "#1abc9c", "#16a085"];
+
+// Food
+let food = randomFood();
+let foodPulse = 0;
+
+// Sound engine (WebAudio API)
+const audio = new (window.AudioContext || window.webkitAudioContext)();
+
+function beep(freq, time) {
+    let osc = audio.createOscillator();
+    let gain = audio.createGain();
+    osc.frequency.value = freq;
+    osc.connect(gain);
+    gain.connect(audio.destination);
+    osc.start();
+    gain.gain.exponentialRampToValueAtTime(0.0001, audio.currentTime + time);
+    osc.stop(audio.currentTime + time);
+}
+
+// ------------------------------------------------------------
+// RANDOM FOOD POSITION
+// ------------------------------------------------------------
+function randomFood() {
+    return {
+        x: Math.floor(Math.random() * (canvas.width / size)) * size,
+        y: Math.floor(Math.random() * (canvas.height / size)) * size
+    };
+}
+
+// ------------------------------------------------------------
+// INPUT HANDLING
+// ------------------------------------------------------------
+document.addEventListener("keydown", e => {
+    if (e.key === "ArrowUp" && direction.y !== 1)    direction = { x: 0, y: -1 };
+    if (e.key === "ArrowDown" && direction.y !== -1) direction = { x: 0, y: 1 };
+    if (e.key === "ArrowLeft" && direction.x !== 1)  direction = { x: -1, y: 0 };
+    if (e.key === "ArrowRight" && direction.x !== -1) direction = { x: 1, y: 0 };
+
+    if (!running && e.key === "Enter") restartGame();
+});
+
+// ------------------------------------------------------------
+// REAL-TIME GAME LOOP (60 FPS)
+// ------------------------------------------------------------
+let lastTime = 0;
+function gameLoop(time) {
+    requestAnimationFrame(gameLoop);
+
+    const delta = time - lastTime;
+    if (delta < 1000 / 60) return;
+    lastTime = time;
+
+    update();
+    draw();
+}
+
+// ------------------------------------------------------------
+// UPDATE LOGIC
+// ------------------------------------------------------------
+let accumulator = 0;
+
+function update() {
+
+    accumulator++;
+    if (accumulator < speed) return;
+    accumulator = 0;
+
+    let head = {
+        x: snake[0].x + direction.x * size,
+        y: snake[0].y + direction.y * size
+    };
+
+    // Wall collision
+    if (
+        head.x < 0 || head.x >= canvas.width ||
+        head.y < 0 || head.y >= canvas.height
+    ) {
+        beep(200, 0.3);
+        running = false;
+        return;
+    }
+
+    // Self collision
+    for (let s of snake) {
+        if (head.x === s.x && head.y === s.y) {
+            beep(200, 0.3);
+            running = false;
+            return;
+        }
+    }
+
+    snake.unshift(head);
+
+    // Eat food
+    if (head.x === food.x && head.y === food.y) {
+        score++;
+        document.getElementById("score").innerText = "Score: " + score;
+
+        beep(600, 0.1);
+
+        food = randomFood();
+
+        if (speed > 1.5) speed -= 0.1; // speed up
+    } else {
+        snake.pop();
+    }
+
+    // pulse animation for food
+    foodPulse += 0.1;
+}
+
+// ------------------------------------------------------------
+// DRAW EVERYTHING
+// ------------------------------------------------------------
+function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Gradient background
+    let gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+    gradient.addColorStop(0, "#1e3c72");
+    gradient.addColorStop(1, "#2a5298");
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Draw snake (head is different color)
+    for (let i = 0; i < snake.length; i++) {
+        ctx.fillStyle = i === 0 ? "#f1c40f" : colors[i % colors.length];
+        ctx.fillRect(snake[i].x, snake[i].y, size - 2, size - 2);
+    }
+
+    // Draw food with glow effect
+    let glow = Math.abs(Math.sin(foodPulse)) * 10;
+
+    ctx.shadowBlur = glow;
+    ctx.shadowColor = "#e74c3c";
+    ctx.fillStyle = "#e74c3c";
+    ctx.fillRect(food.x, food.y, size - 2, size - 2);
+
+    ctx.shadowBlur = 0; // reset
+}
+
+// ------------------------------------------------------------
+// RESTART
+// ------------------------------------------------------------
+function restartGame() {
+    snake = [
+        { x: 200, y: 200 },
+        { x: 180, y: 200 },
+        { x: 160, y: 200 }
+    ];
+    direction = { x: 1, y: 0 };
+    score = 0;
+    speed = 4;
+    running = true;
+    food = randomFood();
+    document.getElementById("score").innerText = "Score: 0";
+}
+
+// Start the game
+gameLoop();
+</script>
+
+</body>
+</html>

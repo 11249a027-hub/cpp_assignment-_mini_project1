@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Advanced Snake</title>
+<style>
+    body {
+        margin: 0;
+        overflow: hidden;
+        background: #000;
+        font-family: Arial, sans-serif;
+        color: white;
+        user-select: none;
+    }
+
+    #score {
+        position: absolute;
+        top: 15px;
+        left: 15px;
+        font-size: 24px;
+        font-weight: bold;
+        z-index: 99;
+        text-shadow: 0 0 10px black;
+    }
+
+    /* Touch Controls */
+    #controls {
+        position: absolute;
+        bottom: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        display: flex;
+        gap: 20px;
+    }
+
+    .btn {
+        width: 60px;
+        height: 60px;
+        background: rgba(255,255,255,0.2);
+        border-radius: 50%;
+        color: white;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        font-size: 30px;
+        user-select: none;
+    }
+
+    .btn:active {
+        background: rgba(255,255,255,0.4);
+    }
+</style>
+</head>
+<body>
+
+<div id="score">Score: 0</div>
+<canvas id="gameCanvas"></canvas>
+
+<!-- Mobile Touch Buttons -->
+<div id="controls">
+    <div class="btn" id="left">◄</div>
+    <div class="btn" id="up">▲</div>
+    <div class="btn" id="down">▼</div>
+    <div class="btn" id="right">►</div>
+</div>
+
+<script>
+// ------------------------------------------------------------
+// CANVAS SETUP
+// ------------------------------------------------------------
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
+
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
+
+const size = 20;
+let speed = 4;
+let score = 0;
+let running = true;
+
+// Snake
+let snake = [
+    { x: 200, y: 200 },
+    { x: 180, y: 200 },
+    { x: 160, y: 200 }
+];
+
+let direction = { x: 1, y: 0 };
+let lastDir = direction;
+
+// Food types
+let food = randomFood();
+let foodType = 1; // 1 = normal, 2 = double points, 3 = freeze, 4 = speed boost
+let foodPulse = 0;
+
+// Obstacles
+let obstacles = [];
+spawnObstacles();
+
+// Particle effects
+let particles = [];
+
+// Sounds (Web Audio)
+const audio = new (window.AudioContext || window.webkitAudioContext)();
+
+function beep(freq, time) {
+    let osc = audio.createOscillator();
+    let gain = audio.createGain();
+    osc.frequency.value = freq;
+
+    osc.connect(gain);
+    gain.connect(audio.destination);
+
+    osc.start();
+    gain.gain.exponentialRampToValueAtTime(0.0001, audio.currentTime + time);
+    osc.stop(audio.currentTime + time);
+}
+
+// ------------------------------------------------------------
+// RANDOM FOOD
+// ------------------------------------------------------------
+function randomFood() {
+    return {
+        x: Math.floor(Math.random()* (canvas.width/size)) * size,
+        y: Math.floor(Math.random()* (canvas.height/size)) * size
+    };
+}
+
+// Spawn food type
+function randomFoodType() {
+    let r = Math.random();
+    if (r < 0.6) return 1;
+    if (r < 0.8) return 2;
+    if (r < 0.9) return 3;
+    return 4;
+}
+
+// ------------------------------------------------------------
+// OBSTACLES
+// ------------------------------------------------------------
+function spawnObstacles() {
+    obstacles = [];
+    for (let i = 0; i < 12; i++) {
+        obstacles.push({
+            x: Math.floor(Math.random()* (canvas.width/size)) * size,
+            y: Math.floor(Math.random()* (canvas.height/size)) * size
+        });
+    }
+}
+
+function isObstacle(x, y) {
+    return obstacles.some(o => o.x === x && o.y === y);
+}
+
+// ------------------------------------------------------------
+// PARTICLES
+// ------------------------------------------------------------
+function spawnParticles(x, y) {
+    for (let i = 0; i < 10; i++) {
+        particles.push({
+            x,
+            y,
+            dx: (Math.random()-0.5)*4,
+            dy: (Math.random()-0.5)*4,
+            life: 15
+        });
+    }
+}
+
+// ------------------------------------------------------------
+// INPUT - KEYBOARD
+// ------------------------------------------------------------
+document.addEventListener("keydown", e => {
+    if (!running && e.key === "Enter") restartGame();
+
+    if (e.key === "ArrowUp" && lastDir.y !== 1) direction = { x:0, y:-1 };
+    if (e.key === "ArrowDown" && lastDir.y !== -1) direction = { x:0, y:1 };
+    if (e.key === "ArrowLeft" && lastDir.x !== 1) direction = { x:-1, y:0 };
+    if (e.key === "ArrowRight" && lastDir.x !== -1) direction = { x:1, y:0 };
+});
+
+// ------------------------------------------------------------
+// INPUT - TOUCH
+// ------------------------------------------------------------
+document.getElementById("up").onclick    = () => direction = { x:0, y:-1 };
+document.getElementById("down").onclick  = () => direction = { x:0, y:1 };
+document.getElementById("left").onclick  = () => direction = { x:-1, y:0 };
+document.getElementById("right").onclick = () => direction = { x:1, y:0 };
+
+// ------------------------------------------------------------
+// REAL-TIME GAME LOOP
+// ------------------------------------------------------------
+let lastTime = 0;
+let accumulator = 0;
+
+function gameLoop(t) {
+    requestAnimationFrame(gameLoop);
+
+    const dt = t - lastTime;
+    lastTime = t;
+    accumulator += dt;
+
+    if (accumulator >= 1000/60) {
+        accumulator = 0;
+        update();
+        draw();
+    }
+}
+
+gameLoop(0);
+
+// ------------------------------------------------------------
+// UPDATE LOGIC
+// ------------------------------------------------------------
+function update() {
+    if (!running) return;
+
+    // Move snake only when enough frames passed
+    if (Math.random() < 1/speed) return;
+
+    let head = {
+        x: snake[0].x + direction.x*size,
+        y: snake[0].y + direction.y*size
+    };
+    lastDir = direction;
+
+    // Collisions
+    if (head.x < 0 || head.x >= canvas.width ||
+        head.y < 0 || head.y >= canvas.height ||
+        snake.some(s => s.x === head.x && s.y === head.y) ||
+        isObstacle(head.x, head.y))
+    {
+        beep(200, 0.4);
+        running = false;
+        return;
+    }
+
+    snake.unshift(head);
+
+    // FOOD
+    if (head.x === food.x && head.y === food.y) {
+        beep(800, 0.1);
+        spawnParticles(food.x, food.y);
+
+        if (foodType === 1) score++;
+        if (foodType === 2) score += 3;
+        if (foodType === 3) speed = 6;        // slight freeze effect
+        if (foodType === 4) speed = 2;        // speed boost
+
+        document.getElementById("score").innerText = "Score: " + score;
+
+        food = randomFood();
+        foodType = randomFoodType();
+    } else {
+        snake.pop();
+    }
+
+    // Update particles
+    particles = particles.filter(p => p.life-- > 0);
+    particles.forEach(p => {
+        p.x += p.dx;
+        p.y += p.dy;
+    });
+
+    foodPulse += 0.1;
+}
+
+// ------------------------------------------------------------
+// DRAW EVERYTHING
+// ------------------------------------------------------------
+function draw() {
+    // background animated gradient
+    let g = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+    g.addColorStop(0, "#0f0c29");
+    g.addColorStop(0.5, "#302b63");
+    g.addColorStop(1, "#24243e");
+    ctx.fillStyle = g;
+    ctx.fillRect(0,0,canvas.width, canvas.height);
+
+    // obstacles
+    ctx.fillStyle = "#444";
+    obstacles.forEach(o => {
+        ctx.fillRect(o.x, o.y, size-2, size-2);
+    });
+
+    // Food
+    ctx.shadowBlur = Math.abs(Math.sin(foodPulse))*15;
+    ctx.shadowColor = "#e74c3c";
+
+    ctx.fillStyle = foodType === 1 ? "#e74c3c" :
+                    foodType === 2 ? "#f1c40f" :
+                    foodType === 3 ? "#3498db" :
+                                     "#9b59b6";
+
+    ctx.fillRect(food.x, food.y, size-2, size-2);
+    ctx.shadowBlur = 0;
+
+    // Snake
+    for (let i = 0; i < snake.length; i++) {
+        if (i === 0) ctx.fillStyle = "#00ff8c";     // head
+        else ctx.fillStyle = "#2ecc71";
+
+        ctx.fillRect(snake[i].x, snake[i].y, size-2, size-2);
+    }
+
+    // Eyes on head
+    let hx = snake[0].x;
+    let hy = snake[0].y;
+
+    ctx.fillStyle = "black";
+    if (direction.x === 1) {
+        ctx.fillRect(hx+10, hy+5, 4,4);
+        ctx.fillRect(hx+10, hy+12, 4,4);
+    }
+    if (direction.x === -1) {
+        ctx.fillRect(hx+4, hy+5, 4,4);
+        ctx.fillRect(hx+4, hy+12, 4,4);
+    }
+    if (direction.y === 1) {
+        ctx.fillRect(hx+5, hy+10, 4,4);
+        ctx.fillRect(hx+12, hy+10, 4,4);
+    }
+    if (direction.y === -1) {
+        ctx.fillRect(hx+5, hy+4, 4,4);
+        ctx.fillRect(hx+12, hy+4, 4,4);
+    }
+
+    // Particles
+    particles.forEach(p => {
+        ctx.fillStyle = "rgba(255,255,255,0.8)";
+        ctx.fillRect(p.x, p.y, 4, 4);
+    });
+
+    // Game Over
+    if (!running) {
+        ctx.fillStyle = "white";
+        ctx.font = "40px Arial";
+        ctx.fillText("GAME OVER", canvas.width/2 - 120, canvas.height/2);
+        ctx.font = "20px Arial";
+        ctx.fillText("Press ENTER to restart", canvas.width/2 - 120, canvas.height/2 + 40);
+    }
+}
+
+// ------------------------------------------------------------
+// RESET
+// ------------------------------------------------------------
+function restartGame() {
+    snake = [
+        { x: 200, y: 200 },
+        { x: 180, y: 200 },
+        { x: 160, y: 200 }
+    ];
+    direction = { x:1, y:0 };
+    score = 0;
+    speed = 4;
+    running = true;
+    food = randomFood();
+    foodType = randomFoodType();
+
+    spawnObstacles();
+    document.getElementById("score").innerText = "Score: 0";
+}
+</script>
+
+</body>
+</html>
